@@ -1,6 +1,8 @@
 ---
 encrypted: "{{ cloud_providers.ec2.encrypted }}"
 ec2_vpc_nets:
-  cidr_block: 172.16.0.0/16
-  subnet_cidr: 172.16.254.0/23
+  cidr_block: 172.31.0.0/16
+  subnet_cidr: 172.31.254.0/23
 existing_eip: ""
+existing_vpc_id: "vpc-0ca1b32dd4f484b1c"
+existing_internet_gw_id: "igw-0e36aa1989b521d8d"
