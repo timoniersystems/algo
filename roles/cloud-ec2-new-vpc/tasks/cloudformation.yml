@@ -6,11 +6,8 @@
     stack_name: "{{ stack_name }}"
     state: present
     region: "{{ algo_region }}"
-    template: roles/cloud-ec2/files/stack-existing-vpc.yaml
+    template: roles/cloud-ec2/files/stack.yaml
     template_parameters:
-      ExistingVpcId: "{{ existing_vpc_id }}"
-      ExistingInternetGwId: "{{ existing_internet_gw_id }}"
-      NewSubnetCidr: "{{ new_subnet_cidr }}"
       InstanceTypeParameter: "{{ cloud_providers.ec2.size }}"
       PublicSSHKeyParameter: "{{ lookup('file', SSH_keys.public) }}"
       ImageIdParameter: "{{ ami_image }}"

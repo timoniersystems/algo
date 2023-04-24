@@ -2,15 +2,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Algo VPN stack'
 Parameters:
-  ExistingVpcId:
-    Type: String
-  ExistingInternetGwId:
-    Type: String
-  NewSubnetCidr:
-    Type: String
-  AvailabilityZone:
-    Type: String
-    Default: 'us-west-2a'
   InstanceTypeParameter:
     Type: String
     Default: t2.micro
@@ -41,21 +32,50 @@ Conditions:
   AssociateExistingEIP: !Not [!Equals [!Ref UseThisElasticIP, '']]
   InstanceIsSpot: !Equals [spot, !Ref InstanceMarketTypeParameter]
 Resources:
-  Subnet:
-    Type: AWS::EC2::Subnet
+  VPC:
+    Type: AWS::EC2::VPC
     Properties:
-      AvailabilityZone: !Ref AvailabilityZone
-      CidrBlock: !Ref NewSubnetCidr
-      MapPublicIpOnLaunch: false
-      VpcId: !Ref ExistingVpcId
+      CidrBlock: 172.16.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
       Tags:
         - Key: Name
           Value: !Ref AWS::StackName
 
+  VPCIPv6:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      AmazonProvidedIpv6CidrBlock: true
+      VpcId: !Ref VPC
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+
+  Subnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 172.16.254.0/23
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Ref AWS::StackName
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
   RouteTable:
     Type: AWS::EC2::RouteTable
     Properties:
-      VpcId: !Ref ExistingVpcId
+      VpcId: !Ref VPC
       Tags:
         - Key: Name
           Value: !Ref AWS::StackName
@@ -63,11 +83,38 @@ Resources:
   Route:
     Type: AWS::EC2::Route
     DependsOn:
+      - InternetGateway
       - RouteTable
+      - VPCGatewayAttachment
     Properties:
       RouteTableId: !Ref RouteTable
       DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref ExistingInternetGwId
+      GatewayId: !Ref InternetGateway
+
+  RouteIPv6:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - InternetGateway
+      - RouteTable
+      - VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationIpv6CidrBlock: "::/0"
+      GatewayId: !Ref InternetGateway
+
+  SubnetIPv6:
+    Type: AWS::EC2::SubnetCidrBlock
+    DependsOn:
+      - RouteIPv6
+      - VPC
+      - VPCIPv6
+    Properties:
+      Ipv6CidrBlock:
+        "Fn::Join":
+            - ""
+            - - !Select [0, !Split [ "::", !Select [0, !GetAtt VPC.Ipv6CidrBlocks] ]]
+              - "::dead:beef/64"
+      SubnetId: !Ref Subnet
 
   RouteSubnet:
     Type: "AWS::EC2::SubnetRouteTableAssociation"
@@ -84,7 +131,7 @@ Resources:
     DependsOn:
       - Subnet
     Properties:
-      VpcId: !Ref ExistingVpcId
+      VpcId: !Ref VPC
       GroupDescription: Enable SSH and IPsec
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -119,12 +166,12 @@ Resources:
   EC2Instance:
     Type: AWS::EC2::Instance
     DependsOn:
+      - SubnetIPv6
       - Subnet
       - InstanceSecurityGroup
     Properties:
       InstanceType:
         Ref: InstanceTypeParameter
-      AvailabilityZone: !Ref AvailabilityZone
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
@@ -137,6 +184,7 @@ Resources:
       ImageId:
         Ref: ImageIdParameter
       SubnetId: !Ref Subnet
+      Ipv6AddressCount: 1
       UserData: !Ref UserData
       LaunchTemplate:
         !If               # Only if Conditions created "EC2LaunchTemplate"
@@ -158,6 +206,7 @@ Resources:
       InstanceId: !Ref EC2Instance
     DependsOn:
       - EC2Instance
+      - VPCGatewayAttachment
 
   ElasticIPAssociation:
     Type: AWS::EC2::EIPAssociation
